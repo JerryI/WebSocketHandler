@@ -461,7 +461,7 @@ VersionQ[n_] := $VersionNumber >= n
 testUnmask[func_] := If[func[{1,2,3,4}, {1,2,3,4,5,6,7,8,9}] === {0,0,0,0,4,4,4,12,8}, True, False]
 
 unmask := unmask = 
-If[VersionQ[13.2],
+If[VersionQ[15.2],
 	With[{compiled = PreCompile[{$directory, "unmask"}, FileNameJoin[{$directory, "Kernel", "unmask.wl"}]]},
 		If[testUnmask[compiled],
 			compiled
