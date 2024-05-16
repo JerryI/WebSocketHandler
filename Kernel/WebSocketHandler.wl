@@ -189,8 +189,7 @@ Module[{connections, deserializer, messageHandler, defaultMessageHandler, frame,
 		(*Return: Null*)
 		closeQ[client, message], 
 			$connections = Delete[$connections, Key[client]];
-			connections["Remove", client]; 
-			Map[Close, client["ConnectedClients"]];, 
+			connections["Remove", client];, 
 
 		(*Return: ByteArray*)
 		pingQ[client, message], 
