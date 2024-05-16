@@ -466,13 +466,13 @@ If[VersionQ[15.2],
 		If[testUnmask[compiled],
 			compiled
 		,
-			Print[">> test FAILED: using uncompiled unmask"];
+			
 			FileNameJoin[{$directory, "Kernel", "unmask-uncompiled.wl"}] // Get
 
 		]
 	]
 ,
-	Print[">> legacy WL: using uncompiled unmask"];
+	
 	FileNameJoin[{$directory, "Kernel", "unmask-uncompiled.wl"}] // Get
 ];
 
