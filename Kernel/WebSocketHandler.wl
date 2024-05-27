@@ -394,7 +394,7 @@ decodeFrame[message_ByteArray] :=
 Module[{header, payload, data}, 
 	header = getFrameHeader[message]; 
 	payload = message[[header["PayloadPosition"]]]; 
-	data = If[Length[header["MaskingKey"]] == 4, ByteArray[unmask[header["MaskingKey"], payload]], payload]; 
+	data = If[Length[header["MaskingKey"]] == 4, ByteArray[ByteMask[header["MaskingKey"], payload]], payload]; 
 	(*Return: _Association*)
 	Append[header, "Data" -> data]
 ]; 
@@ -455,25 +455,6 @@ Module[{byte1, byte2, fin, opcode, mask, len, maskingKey, nextPosition, payload,
 	|>
 ]; 
 
-VersionQ[n_] := $VersionNumber >= n
-
-testUnmask[func_] := If[func[{1,2,3,4}, {1,2,3,4,5,6,7,8,9}] === {0,0,0,0,4,4,4,12,8}, True, False]
-
-unmask := unmask = 
-If[VersionQ[15.2],
-	With[{compiled = PreCompile[{$directory, "unmask"}, FileNameJoin[{$directory, "Kernel", "unmask.wl"}]]},
-		If[testUnmask[compiled],
-			compiled
-		,
-			
-			FileNameJoin[{$directory, "Kernel", "unmask-uncompiled.wl"}] // Get
-
-		]
-	]
-,
-	
-	FileNameJoin[{$directory, "Kernel", "unmask-uncompiled.wl"}] // Get
-];
 
 saveFrameToBuffer[buffer_DataStructure, client: _[uuid_], frame_] := 
 Module[{clientBuffer}, 
