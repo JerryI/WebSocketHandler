@@ -180,24 +180,36 @@ CreateType[WebSocketHandler, init, {
 
 
 handler_WebSocketHandler[client_, message_ByteArray] := 
-Module[{connections, deserializer, messageHandler, defaultMessageHandler, frame, buffer, data, expr}, 
+Module[{connections, deserializer, messageHandler, defaultMessageHandler, frame, buffer, data, expr, joinedMessage, extra}, 
 	$CurrenctClient = client; 
 
 	connections = handler["Connections"]; 
 	deserializer = handler["Deserializer"]; 
+	(* lost bytes from the last round + current message *)
+	joinedMessage = Join[getRawFromLater[client], message];
+
 	Which[
 		(*Return: Null*)
-		closeQ[client, message], 
-			$connections = Delete[$connections, Key[client]];
+		closeQ[client, joinedMessage], 
+			saveRawForLater[ByteArray[{}], client]; (* flush the rest [FIXME]*)
+			$connections = Delete[$connections, Key[client] ];
 			connections["Remove", client];, 
 
 		(*Return: ByteArray*)
-		pingQ[client, message], 
-			pong[client, message], 
+		pingQ[client, joinedMessage], 
+			saveRawForLater[ByteArray[{}], client]; (* flush the rest [FIXME]*)
+			pong[client, joinedMessage], 
 
 		(*Return: Null*)
-		frameQ[client, message], 
-			frame = decodeFrame[message]; 
+		frameQ[client, joinedMessage], 
+			{frame, extra} = decodeFrame[joinedMessage]; 
+			
+			(* failed to parse the header -> need more data *)
+			If[FailureQ[frame],
+				saveRawForLater[joinedMessage, client];
+				Return[];
+			];
+
 			buffer = handler["Buffer"]; 
 
 			If[
@@ -211,12 +223,19 @@ Module[{connections, deserializer, messageHandler, defaultMessageHandler, frame,
 
 				(*Else*) 
 					saveFrameToBuffer[buffer, client, frame]; 
-			];, 
+			];
+			
+			(* try to process the rest *)
+			If[Length[extra] > 0, 
+				handler[client, extra]
+			]
+			, 
 
 		(*Return: _String*)
-		handshakeQ[client, message], 
+		handshakeQ[client, joinedMessage], 
 			connections["Insert", client]; 
 			$connections[client] = connections; 
+			saveRawForLater[ByteArray[{}], client]; (* flush the rest [FIXME]*)
 			handshake[client, message]
 	]
 ]; 
@@ -393,10 +412,27 @@ Module[{serializer},
 decodeFrame[message_ByteArray] := 
 Module[{header, payload, data}, 
 	header = getFrameHeader[message]; 
+
+	(* check for fragmentation of the header *)
+	If[FailureQ[header],
+		(*Need more bytes *)
+		(*Echo["WebSocketHandler >> Need more bytes"]; *)
+		Return[{$Failed, message}];
+		(*Return: {$Failed, _ByteArray}*)
+	];
+
+	(* check for fragmentation of the payload *)
+	If[header["PayloadPosition"][[2]] > Length[message],
+		(*Need more bytes *)
+		(*Echo["WebSocketHandler >> Payload is less than a buffer size"]; *)
+		Return[{$Failed, message}];
+		(*Return: {$Failed, _ByteArray}*)	
+	];
+
 	payload = message[[header["PayloadPosition"]]]; 
 	data = If[Length[header["MaskingKey"]] == 4, ByteArray[ByteMask[header["MaskingKey"], payload]], payload]; 
-	(*Return: _Association*)
-	Append[header, "Data" -> data]
+	(*Return: {data_Association, extra_ByteArray}*)
+	{Append[header, "Data" -> data], Drop[message, header["PayloadPosition"][[2]] ]}
 ]; 
 
 
@@ -441,8 +477,17 @@ Module[{byte1, byte2, fin, opcode, mask, len, maskingKey, nextPosition, payload,
 
 	If[mask, 
 		maskingKey = message[[nextPosition ;; nextPosition + 3]]; nextPosition = nextPosition + 4, 
-		maskingKey = {}
+		maskingKey = ByteArray[{}]
 	]; 
+
+	(* if the header is split in multiple TCP packets *)
+	(*Return: $Failed*)
+	If[!NumberQ[len] || !ByteArrayQ[maskingKey],
+		(* Echo["WebSocketHandler >> Frame header is broken!"]; *)
+		(* Echo[{len, maskingKey}]; *)
+		Return[$Failed];
+		(*Return: $Failed*)
+	];
 
 	(*Return: _Association*)
 	<|
@@ -455,6 +500,13 @@ Module[{byte1, byte2, fin, opcode, mask, len, maskingKey, nextPosition, payload,
 	|>
 ]; 
 
+bufferedRawData[_] := ByteArray[{}];
+
+saveRawForLater[buffer_ByteArray, client_: _[uuid_] ] := bufferedRawData[uuid] = buffer;
+getRawFromLater[client_: _[uuid_] ] := With[{saved = bufferedRawData[uuid]},
+	bufferedRawData[uuid] = ByteArray[{}];
+	saved
+]
 
 saveFrameToBuffer[buffer_DataStructure, client: _[uuid_], frame_] := 
 Module[{clientBuffer}, 
